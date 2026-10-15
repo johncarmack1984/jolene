@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Unit tests run inside the app. Leave the menu bar and settings alone for them.
         guard !Self.isRunningTests else { return }
+        guard !handedOverToRunningCopy() else { return }
 
         NSApp.mainMenu = MainMenu.make()
         let model = AppModel(store: PreferencesStore(defaults: .standard), monitor: BadgeMonitor())
@@ -60,6 +61,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showSettings(_ sender: Any?) {
         settingsWindow?.show(selecting: nil)
+    }
+
+    /// Two copies of Jolene, say an installed one and a development build, would show every
+    /// badge twice. If another copy is already running, open its settings instead and quit.
+    private func handedOverToRunningCopy() -> Bool {
+        guard let bundleID = Bundle.main.bundleIdentifier,
+              let other = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+                .first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier && !$0.isTerminated }),
+              let url = other.bundleURL
+        else { return false }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { _, _ in
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
+        return true
     }
 
     private static var isRunningTests: Bool {
