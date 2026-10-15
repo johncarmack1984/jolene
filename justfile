@@ -49,9 +49,19 @@ release:
 run: build quit
     open {{debug_app}}
 
-# Quit Jolene if it's running
+# Quit Jolene if it's running, and wait until it has
 quit:
-    if [ -n "$(lsappinfo find bundleid={{bundle_id}})" ]; then osascript -e 'tell application id "{{bundle_id}}" to quit'; fi
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [ -n "$(lsappinfo find bundleid={{bundle_id}})" ] || exit 0
+    osascript -e 'tell application id "{{bundle_id}}" to quit'
+    # Opening the new build while the old one is still quitting fails with error -609.
+    for _ in $(seq 50); do
+        [ -z "$(lsappinfo find bundleid={{bundle_id}})" ] && exit 0
+        sleep 0.1
+    done
+    echo "Jolene was still quitting after 5 seconds." >&2
+    exit 1
 
 # Build BadgeProbe, a small Dock app that shows whatever badge you give it
 probe-build:
