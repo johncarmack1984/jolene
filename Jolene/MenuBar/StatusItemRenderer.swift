@@ -1,8 +1,8 @@
 import AppKit
 
 /// What one menu bar item shows: an icon and, maybe, a badge.
-struct StatusItemArtwork: Hashable {
-    enum Icon: Hashable {
+nonisolated struct StatusItemArtwork: Hashable, Sendable {
+    nonisolated enum Icon: Hashable, Sendable {
         /// The app's own icon, by bundle identifier.
         case app(String)
         /// The app's icon in grayscale, by bundle identifier.
@@ -41,9 +41,20 @@ struct StatusItemArtwork: Hashable {
     }
 }
 
+/// The single combined item: icons of the apps with something new, then the total.
+nonisolated struct CombinedArtwork: Hashable, Sendable {
+    var icons: [StatusItemArtwork.Icon]
+    var total: Badge?
+
+    static let maximumIcons = 4
+}
+
 /// Draws menu bar items. Every badge is measured with the font it's drawn in, so the item
 /// grows to fit "12", "123" or "99+" instead of cutting them off.
-enum StatusItemRenderer {
+///
+/// The images draw lazily, and AppKit may draw an image on any thread, so the drawing code
+/// isn't tied to the main actor. Only looking up app icons is.
+nonisolated enum StatusItemRenderer {
     static let height: CGFloat = 22
     static let appIconSide: CGFloat = 18
     static let symbolPointSize: CGFloat = 15
@@ -56,13 +67,15 @@ enum StatusItemRenderer {
     static let dotDiameter: CGFloat = 7
     static let numberSpacing: CGFloat = 3
     static let dimmedAlpha: CGFloat = 0.4
+    static let combinedIconSide: CGFloat = 16
+    static let combinedIconSpacing: CGFloat = 3
 
     static var badgeFont: NSFont { .monospacedDigitSystemFont(ofSize: 10, weight: .bold) }
     static var numberFont: NSFont {
         .monospacedDigitSystemFont(ofSize: NSFont.menuBarFont(ofSize: 0).pointSize, weight: .regular)
     }
 
-    struct Layout: Equatable {
+    struct Layout: Equatable, Sendable {
         var size: NSSize
         var iconRect: NSRect
         /// The red badge, with `text` inside it.
@@ -125,12 +138,16 @@ enum StatusItemRenderer {
     }
 
     /// The finished image, with colors resolved for the given appearance.
+    @MainActor
     static func image(for artwork: StatusItemArtwork, appearance: NSAppearance) -> NSImage {
-        let icon = iconImage(for: artwork.icon)
-        let layout = layout(for: artwork, iconSize: iconSize(for: artwork.icon, image: icon))
+        let iconImage = iconImage(for: artwork.icon)
+        let layout = layout(for: artwork, iconSize: iconSize(for: artwork.icon, image: iconImage))
         let template = artwork.isTemplate
-        let image = NSImage(size: layout.size, flipped: true) { _ in
-            appearance.performAsCurrentDrawingAppearance {
+        // Appearances are safe to use from any thread, though not marked Sendable.
+        let icon = iconImage
+        nonisolated(unsafe) let drawingAppearance = appearance
+        let image = NSImage(size: layout.size, flipped: true) { @Sendable _ in
+            drawingAppearance.performAsCurrentDrawingAppearance {
                 draw(artwork, layout: layout, icon: icon, template: template)
             }
             return true
@@ -139,6 +156,7 @@ enum StatusItemRenderer {
         return image
     }
 
+    @MainActor
     static func iconImage(for icon: StatusItemArtwork.Icon) -> NSImage {
         switch icon {
         case .app(let bundleID): AppIcons.shared.icon(for: bundleID)
@@ -215,20 +233,23 @@ enum StatusItemRenderer {
         context.endTransparencyLayer()
         context.restoreGState()
     }
-}
 
-/// The single combined item: icons of the apps with something new, then the total.
-struct CombinedArtwork: Hashable {
-    var icons: [StatusItemArtwork.Icon]
-    var total: Badge?
+    // MARK: The combined item
 
-    static let maximumIcons = 4
-}
+    /// Where the combined item's icons go. App icons are square; symbols keep their own
+    /// proportions at the same height, so a wide one like an envelope isn't squeezed.
+    static func combinedIconRects(for sizes: [NSSize]) -> [NSRect] {
+        var rects: [NSRect] = []
+        var x: CGFloat = 0
+        for size in sizes {
+            let width = size.height > 0 ? ceil(size.width * combinedIconSide / size.height) : combinedIconSide
+            rects.append(NSRect(x: x, y: ((height - combinedIconSide) / 2).rounded(), width: width, height: combinedIconSide))
+            x += width + combinedIconSpacing
+        }
+        return rects
+    }
 
-extension StatusItemRenderer {
-    static let combinedIconSide: CGFloat = 16
-    static let combinedIconSpacing: CGFloat = 3
-
+    @MainActor
     static func image(for artwork: CombinedArtwork, appearance: NSAppearance) -> NSImage {
         guard !artwork.icons.isEmpty else {
             let symbol = symbolImage(named: "app.badge")
@@ -236,25 +257,27 @@ extension StatusItemRenderer {
             return symbol
         }
 
-        let icons = artwork.icons.prefix(CombinedArtwork.maximumIcons).map { ($0, iconImage(for: $0)) }
-        var iconRects: [NSRect] = []
-        var x: CGFloat = 0
-        for _ in icons {
-            iconRects.append(NSRect(x: x, y: ((height - combinedIconSide) / 2).rounded(), width: combinedIconSide, height: combinedIconSide))
-            x += combinedIconSide + combinedIconSpacing
+        let shown = Array(artwork.icons.prefix(CombinedArtwork.maximumIcons))
+        let images = shown.map { iconImage(for: $0) }
+        let sizes = zip(shown, images).map { icon, image in
+            if case .symbol = icon { image.size } else { NSSize(width: combinedIconSide, height: combinedIconSide) }
         }
+        let iconRects = combinedIconRects(for: sizes)
+        var x = (iconRects.last?.maxX ?? 0)
         var badgeRect: NSRect?
         let text = artwork.total?.displayText ?? ""
         if artwork.total != nil {
+            x += combinedIconSpacing
             let badgeWidth = max(badgeHeight, ceil(measure(text, font: badgeFont).width + badgePadding * 2))
             badgeRect = NSRect(x: x, y: ((height - badgeHeight) / 2).rounded(), width: badgeWidth, height: badgeHeight)
             x += badgeWidth
-        } else {
-            x -= combinedIconSpacing
         }
 
-        let image = NSImage(size: NSSize(width: ceil(x), height: height), flipped: true) { _ in
-            appearance.performAsCurrentDrawingAppearance {
+        let icons = Array(zip(shown, images))
+        nonisolated(unsafe) let drawingAppearance = appearance
+        let finalBadgeRect = badgeRect
+        return NSImage(size: NSSize(width: ceil(x), height: height), flipped: true) { @Sendable _ in
+            drawingAppearance.performAsCurrentDrawingAppearance {
                 for ((icon, iconImage), rect) in zip(icons, iconRects) {
                     if case .symbol = icon {
                         drawTinted(iconImage, in: rect, color: .labelColor, alpha: 1)
@@ -262,16 +285,15 @@ extension StatusItemRenderer {
                         iconImage.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
                     }
                 }
-                if let badgeRect {
+                if let finalBadgeRect {
                     NSColor.systemRed.setFill()
-                    NSBezierPath(roundedRect: badgeRect, xRadius: badgeRect.height / 2, yRadius: badgeRect.height / 2).fill()
+                    NSBezierPath(roundedRect: finalBadgeRect, xRadius: finalBadgeRect.height / 2, yRadius: finalBadgeRect.height / 2).fill()
                     if !text.isEmpty {
-                        drawCentered(text, font: badgeFont, color: .white, in: badgeRect)
+                        drawCentered(text, font: badgeFont, color: .white, in: finalBadgeRect)
                     }
                 }
             }
             return true
         }
-        return image
     }
 }

@@ -52,6 +52,38 @@ struct AppModelTests {
         #expect(model.preferences.apps.map(\.name) == expected)
     }
 
+    @Test func jolenePassesOnWatchingItself() throws {
+        let (model, defaults, suite) = try makeModel()
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let ownID = try #require(Bundle.main.bundleIdentifier)
+        #expect(model.addApps([entry(ownID, "Jolene")]).isEmpty)
+        #expect(model.preferences.apps.isEmpty)
+    }
+
+    @Test func removingCanBeUndoneAndRedone() throws {
+        let (model, defaults, suite) = try makeModel()
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        model.addApps([entry("a", "A"), entry("b", "B"), entry("c", "C")])
+        model.updateApp("b") { $0.badgeStyle = .dot }
+        let undoManager = UndoManager()
+        undoManager.groupsByEvent = false
+
+        undoManager.beginUndoGrouping()
+        model.removeApp("b", undoManager: undoManager)
+        undoManager.endUndoGrouping()
+        #expect(model.preferences.apps.map(\.bundleID) == ["a", "c"])
+        #expect(undoManager.undoActionName == "Remove B")
+
+        undoManager.undo()
+        #expect(model.preferences.apps.map(\.bundleID) == ["a", "b", "c"])
+        #expect(model.app("b")?.badgeStyle == .dot)
+
+        undoManager.redo()
+        #expect(model.preferences.apps.map(\.bundleID) == ["a", "c"])
+    }
+
     @Test func removing() throws {
         let (model, defaults, suite) = try makeModel()
         defer { defaults.removePersistentDomain(forName: suite) }

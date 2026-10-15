@@ -86,8 +86,9 @@ final class LsAppInfoBadgeReader: BadgeReading {
             logger.error("lsappinfo didn't run: \(error.localizedDescription, privacy: .public)")
             return nil
         }
+        // Reading to the end waits for lsappinfo to finish without running the run loop, which
+        // waitUntilExit would, letting other work cut in.
         let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
         return Self.parse(String(decoding: data, as: UTF8.self))
     }
 

@@ -4,11 +4,23 @@ import SwiftUI
 struct AppSettingsView: View {
     let model: AppModel
     let app: MonitoredApp
+    @Environment(\.undoManager) private var undoManager
 
     var body: some View {
         Form {
             Section {
                 AppHeader(app: app, status: model.status(of: app))
+            }
+
+            if model.preferences.layout == .combined {
+                Section {
+                    Label {
+                        Text("Jolene is showing a single item for all apps, which uses only the icon choice below. The rest applies when each app has its own item, which you can switch to in General.")
+                    } icon: {
+                        Image(systemName: "info.circle")
+                    }
+                    .foregroundStyle(.secondary)
+                }
             }
 
             Section("Preview") {
@@ -59,8 +71,7 @@ struct AppSettingsView: View {
 
             Section {
                 Button("Remove \(app.name) from Jolene", role: .destructive) {
-                    model.removeApp(app.bundleID)
-                    model.router.selection = .general
+                    model.removeApp(app.bundleID, undoManager: undoManager)
                 }
                 .foregroundStyle(.red)
             }

@@ -32,6 +32,8 @@ private struct Sidebar: View {
     let model: AppModel
     @Binding var selection: SidebarItem?
     @FocusState private var listFocused: Bool
+    /// SwiftUI's undo manager for this window, the one Edit > Undo uses.
+    @Environment(\.undoManager) private var undoManager
 
     var body: some View {
         List(selection: $selection) {
@@ -71,6 +73,7 @@ private struct Sidebar: View {
                         .frame(width: 26, height: 22)
                 }
                 .help("Add apps")
+                .accessibilityLabel("Add Apps")
 
                 Button {
                     if case .app(let bundleID)? = selection { remove(bundleID) }
@@ -79,6 +82,7 @@ private struct Sidebar: View {
                         .frame(width: 26, height: 22)
                 }
                 .help("Remove the selected app")
+                .accessibilityLabel("Remove App")
                 .disabled(selectedBundleID == nil)
 
                 Spacer()
@@ -93,11 +97,13 @@ private struct Sidebar: View {
         if case .app(let bundleID)? = selection { bundleID } else { nil }
     }
 
-    /// Removes an app and selects its neighbor, so the list stays easy to work through.
+    /// Removes an app, undoably. If it was the page showing, its neighbor's page takes its
+    /// place, so the list stays easy to work through; otherwise the page stays put.
     private func remove(_ bundleID: String) {
-        let apps = model.preferences.apps
-        let index = apps.firstIndex { $0.bundleID == bundleID }
-        model.removeApp(bundleID)
+        let wasShowing = selection == .app(bundleID)
+        let index = model.preferences.apps.firstIndex { $0.bundleID == bundleID }
+        model.removeApp(bundleID, undoManager: undoManager)
+        guard wasShowing else { return }
         let remaining = model.preferences.apps
         if let index, !remaining.isEmpty {
             selection = .app(remaining[min(index, remaining.count - 1)].bundleID)

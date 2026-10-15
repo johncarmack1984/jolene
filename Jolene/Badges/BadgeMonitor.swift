@@ -36,6 +36,8 @@ final class BadgeMonitor: NSObject {
     private var timerInterval: TimeInterval?
     private var displaysAsleep = false
     private var sessionInactive = false
+    private var refreshing = false
+    private var observers: [NSObjectProtocol] = []
     private let logger = Logger(subsystem: "com.johncarmack.jolene", category: "badges")
 
     init(reader: (any BadgeReading)? = BadgeReaders.best()) {
@@ -47,20 +49,60 @@ final class BadgeMonitor: NSObject {
     }
 
     func start() {
+        // Delivered on the main queue, so the handlers can safely touch the monitor.
         let center = NSWorkspace.shared.notificationCenter
-        center.addObserver(self, selector: #selector(applicationsChanged(_:)), name: NSWorkspace.didLaunchApplicationNotification, object: nil)
-        center.addObserver(self, selector: #selector(applicationsChanged(_:)), name: NSWorkspace.didTerminateApplicationNotification, object: nil)
-        center.addObserver(self, selector: #selector(displaysDidSleep), name: NSWorkspace.screensDidSleepNotification, object: nil)
-        center.addObserver(self, selector: #selector(displaysDidWake), name: NSWorkspace.screensDidWakeNotification, object: nil)
-        center.addObserver(self, selector: #selector(sessionDidResign), name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
-        center.addObserver(self, selector: #selector(sessionDidBecomeActive), name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
-        center.addObserver(self, selector: #selector(systemDidWake), name: NSWorkspace.didWakeNotification, object: nil)
+        observers = [
+            center.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refresh() }
+            },
+            center.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { [weak self] notification in
+                let pid = (notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier
+                MainActor.assumeIsolated {
+                    if let pid { self?.reader?.forget(pid: pid) }
+                    self?.refresh()
+                }
+            },
+            center.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.displaysAsleep = true
+                    self?.updateTimer()
+                }
+            },
+            center.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.displaysAsleep = false
+                    self?.refresh()
+                }
+            },
+            center.addObserver(forName: NSWorkspace.sessionDidResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.sessionInactive = true
+                    self?.updateTimer()
+                }
+            },
+            center.addObserver(forName: NSWorkspace.sessionDidBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.sessionInactive = false
+                    self?.refresh()
+                }
+            },
+            center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refresh() }
+            },
+        ]
         refresh()
     }
 
     /// Reads every watched app's badge now.
     func refresh() {
-        defer { updateTimer() }
+        // A slow read can run the run loop, which can deliver a notification that asks for
+        // another refresh. Skip it; this one is already reading.
+        guard !refreshing else { return }
+        refreshing = true
+        defer {
+            refreshing = false
+            updateTimer()
+        }
         guard !watchedBundleIDs.isEmpty else {
             publish(Snapshot())
             return
@@ -105,7 +147,11 @@ final class BadgeMonitor: NSObject {
         timer = nil
         timerInterval = interval
         guard let interval else { return }
-        let timer = Timer(timeInterval: interval, target: self, selector: #selector(timerFired), userInfo: nil, repeats: true)
+        // The timer holds the monitor weakly, so a monitor nobody keeps stops polling.
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] timer in
+            guard let self else { return timer.invalidate() }
+            MainActor.assumeIsolated { self.refresh() }
+        }
         // Let macOS line this up with other wakeups.
         timer.tolerance = interval / 4
         // Common modes keep it firing while a menu is open.
@@ -118,41 +164,5 @@ final class BadgeMonitor: NSObject {
             let label = new.badges[bundleID]?.label ?? "none"
             logger.debug("\(bundleID, privacy: .public) badge: \(label, privacy: .public)")
         }
-    }
-
-    @objc private func timerFired() {
-        refresh()
-    }
-
-    @objc private func applicationsChanged(_ notification: Notification) {
-        if notification.name == NSWorkspace.didTerminateApplicationNotification,
-           let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
-            reader?.forget(pid: app.processIdentifier)
-        }
-        refresh()
-    }
-
-    @objc private func displaysDidSleep() {
-        displaysAsleep = true
-        updateTimer()
-    }
-
-    @objc private func displaysDidWake() {
-        displaysAsleep = false
-        refresh()
-    }
-
-    @objc private func sessionDidResign() {
-        sessionInactive = true
-        updateTimer()
-    }
-
-    @objc private func sessionDidBecomeActive() {
-        sessionInactive = false
-        refresh()
-    }
-
-    @objc private func systemDidWake() {
-        refresh()
     }
 }

@@ -2,13 +2,17 @@ import AppKit
 import Observation
 
 /// Keeps the menu bar in step with the apps, their settings and their badges.
+///
+/// Items are only ever hidden and shown, never removed and added back, except when an app
+/// leaves Jolene altogether. That's what keeps them where the person put them, including
+/// across switches between the two layouts.
 final class MenuBarController {
     private let model: AppModel
-    private let showSettings: (String?) -> Void
+    private let showSettings: (SidebarItem?) -> Void
     private var appItems: [String: AppStatusItem] = [:]
     private var combinedItem: CombinedStatusItem?
 
-    init(model: AppModel, showSettings: @escaping (String?) -> Void) {
+    init(model: AppModel, showSettings: @escaping (SidebarItem?) -> Void) {
         self.model = model
         self.showSettings = showSettings
         observe()
@@ -26,18 +30,8 @@ final class MenuBarController {
     private func render() {
         let preferences = model.preferences
         let snapshot = model.snapshot
+        // With no apps yet, the combined item stands in so settings stay one click away.
         let useCombined = preferences.layout == .combined || preferences.apps.isEmpty
-
-        if useCombined {
-            for item in appItems.values { item.remove() }
-            appItems.removeAll()
-            let combined = combinedItem ?? makeCombinedItem()
-            combined.update(apps: preferences.apps, snapshot: snapshot)
-            return
-        }
-
-        combinedItem?.remove()
-        combinedItem = nil
 
         let wanted = Set(preferences.apps.map(\.bundleID))
         for (bundleID, item) in appItems where !wanted.contains(bundleID) {
@@ -48,7 +42,19 @@ final class MenuBarController {
         // the first app leftmost, matching the order in settings.
         for app in preferences.apps.reversed() {
             let item = appItems[app.bundleID] ?? makeAppItem(for: app)
-            item.update(app: app, isRunning: snapshot.running.contains(app.bundleID), badge: snapshot.badges[app.bundleID])
+            if useCombined {
+                item.hide()
+            } else {
+                item.update(app: app, isRunning: snapshot.running.contains(app.bundleID), badge: snapshot.badges[app.bundleID])
+            }
+        }
+
+        if useCombined {
+            let combined = combinedItem ?? makeCombinedItem()
+            combined.update(apps: preferences.apps, snapshot: snapshot)
+            combined.isShown = true
+        } else {
+            combinedItem?.isShown = false
         }
     }
 
