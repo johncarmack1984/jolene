@@ -16,15 +16,15 @@ default:
 
 # Build the Debug app into build/
 build:
-    xcodebuild -project {{project}} -scheme {{scheme}} -configuration Debug -derivedDataPath {{derived}} -quiet build
+    xcodebuild -project {{project}} -scheme {{scheme}} -configuration Debug -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath {{derived}} -quiet build
 
 # Run the unit tests
 test:
-    xcodebuild -project {{project}} -scheme {{scheme}} -derivedDataPath {{derived}} -quiet test
+    xcodebuild -project {{project}} -scheme {{scheme}} -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath {{derived}} -quiet test
 
 # Run the tests the way CI does, signed ad hoc, so no certificate is needed
 test-ci:
-    xcodebuild test -project {{project}} -scheme {{scheme}} -destination 'platform=macOS' -derivedDataPath build/DerivedDataCI CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= ENABLE_HARDENED_RUNTIME=NO -quiet
+    xcodebuild test -project {{project}} -scheme {{scheme}} -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath build/DerivedDataCI CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= ENABLE_HARDENED_RUNTIME=NO -quiet
 
 # Build a Developer ID release into build/release; set NOTARY_PROFILE (a notarytool keychain profile) to notarize it
 release:
