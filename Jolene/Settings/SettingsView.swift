@@ -71,6 +71,7 @@ private struct Sidebar: View {
                         .frame(width: 26, height: 22)
                 }
                 .help("Add apps")
+                .accessibilityLabel("Add Apps")
 
                 Button {
                     if case .app(let bundleID)? = selection { remove(bundleID) }
@@ -79,6 +80,7 @@ private struct Sidebar: View {
                         .frame(width: 26, height: 22)
                 }
                 .help("Remove the selected app")
+                .accessibilityLabel("Remove App")
                 .disabled(selectedBundleID == nil)
 
                 Spacer()

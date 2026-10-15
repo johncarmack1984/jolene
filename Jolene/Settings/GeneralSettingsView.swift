@@ -41,7 +41,7 @@ struct GeneralSettingsView: View {
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.versionDescription)
                 LabeledContent("Badges", value: model.badgeSource?.description ?? "Not available on this version of macOS")
-                Text("Jolene reads the badge each app puts on its Dock icon, straight from macOS. It needs no special permissions, and it only checks while one of your apps is open.")
+                Text("Jolene reads the badge each app puts on its Dock icon, straight from macOS. It needs no special permissions, and it reads badges only while one of your apps is open.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -58,9 +58,20 @@ struct GeneralSettingsView: View {
         switch model.preferences.layout {
         case .separate:
             "Each app gets its own item. Hold Command and drag them to rearrange; Jolene keeps them where you put them."
+                + (shownSummary.map { " \($0)" } ?? "")
         case .combined:
             "One item shows the apps with something new, and their total. Click it for the full list. Handy on a crowded menu bar or a notched display."
         }
+    }
+
+    /// Explains an empty menu bar: with apps set to show only while open, nothing may be showing.
+    private var shownSummary: String? {
+        let apps = model.preferences.apps
+        guard !apps.isEmpty else { return nil }
+        let shown = apps.filter { app in
+            app.isShown(running: model.snapshot.running.contains(app.bundleID), badge: model.snapshot.badges[app.bundleID])
+        }
+        return "Right now \(shown.count) of \(apps.count) \(shown.count == 1 ? "is" : "are") in the menu bar; the rest appear as each app's settings say."
     }
 }
 
