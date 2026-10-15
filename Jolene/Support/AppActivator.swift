@@ -8,8 +8,9 @@ enum AppActivator {
     /// A click brings the app forward, or opens it. If it's already in front with a window
     /// showing, the click hides it instead, so the item works as a switch.
     static func toggle(bundleID: String) {
-        if let app = runningApp(bundleID), app.isActive, !app.isHidden, hasWindowOnScreen(app) {
-            app.hide()
+        let instances = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).filter { !$0.isTerminated }
+        if let front = instances.first(where: { $0.isActive && !$0.isHidden && hasWindowOnScreen($0) }) {
+            front.hide()
         } else {
             open(bundleID: bundleID)
         }

@@ -13,12 +13,11 @@ final class AppIcons {
     /// The app's icon, or the generic app icon when it isn't installed.
     func icon(for bundleID: String) -> NSImage {
         if let icon = colorIcons[bundleID] { return icon }
-        let icon: NSImage
-        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
-            icon = NSWorkspace.shared.icon(forFile: url.path)
-        } else {
-            icon = NSWorkspace.shared.icon(for: .applicationBundle)
+        // The generic icon isn't kept, so installing the app later shows its real one.
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            return NSWorkspace.shared.icon(for: .applicationBundle)
         }
+        let icon = NSWorkspace.shared.icon(forFile: url.path)
         colorIcons[bundleID] = icon
         return icon
     }
@@ -33,7 +32,9 @@ final class AppIcons {
         let gray = CIImage(cgImage: cgImage).applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0])
         guard let output = imageContext.createCGImage(gray, from: gray.extent) else { return color }
         let icon = NSImage(cgImage: output, size: NSSize(width: side, height: side))
-        monochromeIcons[bundleID] = icon
+        if colorIcons[bundleID] != nil {
+            monochromeIcons[bundleID] = icon
+        }
         return icon
     }
 

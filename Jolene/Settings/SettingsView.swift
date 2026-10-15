@@ -50,7 +50,9 @@ private struct Sidebar: View {
                             Button("Remove from Jolene", role: .destructive) { remove(app.bundleID) }
                         }
                 }
-                .onMove { model.moveApps(fromOffsets: $0, toOffset: $1) }
+                // The order sets the single Jolene item's menu. Separate items keep wherever the
+                // person drags them in the menu bar, so there's nothing to reorder here.
+                .onMove(perform: model.preferences.layout == .combined ? { model.moveApps(fromOffsets: $0, toOffset: $1) } : nil)
 
                 Label("Add Apps…", systemImage: "plus")
                     .foregroundStyle(.secondary)

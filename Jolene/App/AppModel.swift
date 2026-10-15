@@ -138,7 +138,7 @@ final class AppModel {
         let app = preferences.apps[index]
         commit { $0.apps.remove(at: index) }
         router.forget(bundleID)
-        undoManager?.registerUndo(withTarget: self) { model in
+        undoManager?.registerUndo(withTarget: self) { [weak undoManager] model in
             model.restoreApp(app, at: index, undoManager: undoManager)
         }
         undoManager?.setActionName("Remove \(app.name)")
@@ -149,7 +149,7 @@ final class AppModel {
             guard preferences.app(app.bundleID) == nil else { return }
             preferences.apps.insert(app, at: min(index, preferences.apps.count))
         }
-        undoManager?.registerUndo(withTarget: self) { model in
+        undoManager?.registerUndo(withTarget: self) { [weak undoManager] model in
             model.removeApp(app.bundleID, undoManager: undoManager)
         }
         undoManager?.setActionName("Remove \(app.name)")
@@ -211,7 +211,8 @@ final class AppModel {
 
     /// Open apps showing a badge right now that Jolene doesn't watch yet.
     func badgedAppsNotWatched() -> [AppEntry] {
-        guard let reader = BadgeReaders.best() else { return [] }
+        // Through lsappinfo each read starts a process; one per open app would stall the window.
+        guard let reader = BadgeReaders.best(), reader.source == .launchServices else { return [] }
         let watched = Set(preferences.apps.map(\.bundleID))
         return NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular }
