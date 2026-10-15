@@ -42,7 +42,7 @@ jobs:
           xcodebuild test \
             -project Jolene.xcodeproj \
             -scheme Jolene \
-            -destination 'platform=macOS' \
+            -destination "platform=macOS,arch=$(uname -m)" \
             -derivedDataPath build/DerivedData \
             CODE_SIGN_IDENTITY=- \
             CODE_SIGN_STYLE=Manual \
