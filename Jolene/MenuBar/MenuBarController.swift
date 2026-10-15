@@ -30,8 +30,7 @@ final class MenuBarController {
     private func render() {
         let preferences = model.preferences
         let snapshot = model.snapshot
-        // With no apps yet, the combined item stands in so settings stay one click away.
-        let useCombined = preferences.layout == .combined || preferences.apps.isEmpty
+        let useCombined = Self.usesCombinedItem(preferences, snapshot)
 
         let wanted = Set(preferences.apps.map(\.bundleID))
         for (bundleID, item) in appItems where !wanted.contains(bundleID) {
@@ -55,6 +54,17 @@ final class MenuBarController {
             combined.isShown = true
         } else {
             combinedItem?.isShown = false
+        }
+    }
+
+    /// Whether the single combined item shows instead of per-app items. Besides the combined
+    /// layout itself, it stands in whenever no app has an item to show (no apps yet, or each is
+    /// set to show only while open or badged and none is), so Jolene's menu, with Settings and
+    /// Quit, never disappears from the menu bar.
+    static func usesCombinedItem(_ preferences: Preferences, _ snapshot: BadgeMonitor.Snapshot) -> Bool {
+        guard preferences.layout == .separate else { return true }
+        return !preferences.apps.contains { app in
+            app.isShown(running: snapshot.running.contains(app.bundleID), badge: snapshot.badges[app.bundleID])
         }
     }
 

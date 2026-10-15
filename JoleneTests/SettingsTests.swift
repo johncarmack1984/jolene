@@ -67,6 +67,28 @@ struct SettingsTests {
         #expect(!AppDelegate.startedFirst(nil, 900, before: nil, 100))
     }
 
+    /// Jolene keeps something in the menu bar even when every app hides itself.
+    @Test func combinedItemStandsInWhenNothingShows() {
+        var preferences = Preferences()
+        let empty = BadgeMonitor.Snapshot()
+        #expect(MenuBarController.usesCombinedItem(preferences, empty))
+
+        preferences.apps = [
+            MonitoredApp(bundleID: "com.apple.mail", name: "Mail", visibility: .whileRunning),
+            MonitoredApp(bundleID: "com.tinyspeck.slackmacgap", name: "Slack", visibility: .whenBadged),
+        ]
+        #expect(MenuBarController.usesCombinedItem(preferences, empty))
+
+        let mailOpen = BadgeMonitor.Snapshot(running: ["com.apple.mail"], badges: [:])
+        #expect(!MenuBarController.usesCombinedItem(preferences, mailOpen))
+
+        let slackOpenButQuiet = BadgeMonitor.Snapshot(running: ["com.tinyspeck.slackmacgap"], badges: [:])
+        #expect(MenuBarController.usesCombinedItem(preferences, slackOpenButQuiet))
+
+        preferences.layout = .combined
+        #expect(MenuBarController.usesCombinedItem(preferences, mailOpen))
+    }
+
     @Test func statusSummaries() {
         #expect(AppStatus.notInstalled.summary == "Not installed")
         #expect(AppStatus.notRunning.summary == "Not open")

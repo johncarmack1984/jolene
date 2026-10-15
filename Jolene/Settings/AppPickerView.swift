@@ -27,7 +27,8 @@ final class AppCatalog {
             seen.insert(ownID)
         }
 
-        let reader = BadgeReaders.best()
+        // Through lsappinfo each read starts a process; one per open app would stall the window.
+        let reader = BadgeReaders.best().flatMap { $0.source == .launchServices ? $0 : nil }
         var badged: [AppEntry] = []
         var running: [AppEntry] = []
         for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
@@ -190,8 +191,12 @@ struct AppPickerView: View {
         guard !entries.isEmpty else { return }
         if let first = model.addApps(entries).first {
             model.router.selection = .app(first)
+        } else if let watched = entries.first(where: { model.app($0.bundleID) != nil }) {
+            // Already watched: show its page rather than doing nothing.
+            model.router.selection = .app(watched.bundleID)
         } else {
-            model.router.cancelAddingApps()
+            // Only Jolene itself was picked, which it doesn't watch.
+            NSSound.beep()
         }
     }
 

@@ -64,14 +64,21 @@ struct GeneralSettingsView: View {
         }
     }
 
-    /// Explains an empty menu bar: with apps set to show only while open, nothing may be showing.
+    /// Says what's in the menu bar now, since items that show only while their app is open or
+    /// badged come and go.
     private var shownSummary: String? {
         let apps = model.preferences.apps
         guard !apps.isEmpty else { return nil }
         let shown = apps.filter { app in
             app.isShown(running: model.snapshot.running.contains(app.bundleID), badge: model.snapshot.badges[app.bundleID])
+        }.count
+        if shown == apps.count {
+            return apps.count == 1 ? "It's in the menu bar now." : "All \(apps.count) are in the menu bar now."
         }
-        return "Right now \(shown.count) of \(apps.count) \(shown.count == 1 ? "is" : "are") in the menu bar; the rest appear as each app's settings say."
+        if shown == 0 {
+            return "None is showing right now, so a single Jolene item stands in until one is."
+        }
+        return "Right now \(shown) of \(apps.count) are showing; the others appear as each app's settings say."
     }
 }
 
