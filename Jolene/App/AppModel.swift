@@ -30,19 +30,38 @@ enum SidebarItem: Hashable {
 
 @Observable
 final class SettingsRouter {
-    var selection: SidebarItem? = .general
+    private var page: SidebarItem? = .general
     /// Where to go back to if adding apps is canceled.
     @ObservationIgnored private var beforeAdding: SidebarItem?
 
-    func addApps() {
-        if selection != .addApps {
-            beforeAdding = selection
+    /// The page showing. However Add Apps is reached (a button, the sidebar row, the arrow
+    /// keys), the page before it is remembered for Cancel.
+    var selection: SidebarItem? {
+        get { page }
+        set {
+            if newValue == .addApps, page != .addApps {
+                beforeAdding = page
+            }
+            page = newValue
         }
+    }
+
+    func addApps() {
         selection = .addApps
     }
 
     func cancelAddingApps() {
         selection = beforeAdding ?? .general
+    }
+
+    /// Stops pointing at an app that's been removed.
+    func forget(_ bundleID: String) {
+        if page == .app(bundleID) {
+            page = .general
+        }
+        if beforeAdding == .app(bundleID) {
+            beforeAdding = nil
+        }
     }
 }
 
@@ -105,7 +124,7 @@ final class AppModel {
     func addApps(_ entries: [AppEntry]) -> [String] {
         var added: [String] = []
         commit { preferences in
-            for entry in entries where preferences.app(entry.bundleID) == nil {
+            for entry in entries where preferences.app(entry.bundleID) == nil && entry.bundleID != Bundle.main.bundleIdentifier {
                 preferences.apps.append(MonitoredApp(bundleID: entry.bundleID, name: entry.name))
                 added.append(entry.bundleID)
             }
@@ -113,8 +132,27 @@ final class AppModel {
         return added
     }
 
-    func removeApp(_ bundleID: String) {
-        commit { $0.apps.removeAll { $0.bundleID == bundleID } }
+    /// Removes an app and its settings. Given the window's undo manager, Edit > Undo puts both back.
+    func removeApp(_ bundleID: String, undoManager: UndoManager? = nil) {
+        guard let index = preferences.apps.firstIndex(where: { $0.bundleID == bundleID }) else { return }
+        let app = preferences.apps[index]
+        commit { $0.apps.remove(at: index) }
+        router.forget(bundleID)
+        undoManager?.registerUndo(withTarget: self) { model in
+            model.restoreApp(app, at: index, undoManager: undoManager)
+        }
+        undoManager?.setActionName("Remove \(app.name)")
+    }
+
+    private func restoreApp(_ app: MonitoredApp, at index: Int, undoManager: UndoManager?) {
+        commit { preferences in
+            guard preferences.app(app.bundleID) == nil else { return }
+            preferences.apps.insert(app, at: min(index, preferences.apps.count))
+        }
+        undoManager?.registerUndo(withTarget: self) { model in
+            model.removeApp(app.bundleID, undoManager: undoManager)
+        }
+        undoManager?.setActionName("Remove \(app.name)")
     }
 
     func moveApps(fromOffsets source: IndexSet, toOffset destination: Int) {

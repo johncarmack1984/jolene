@@ -90,6 +90,17 @@ struct StatusItemRendererTests {
         }
     }
 
+    /// Symbols in the combined item keep their proportions instead of being squeezed square.
+    @Test func combinedIconsKeepTheirProportions() {
+        let side = StatusItemRenderer.combinedIconSide
+        let rects = StatusItemRenderer.combinedIconRects(for: [NSSize(width: 18, height: 18), NSSize(width: 22, height: 16), NSSize(width: 25, height: 18)])
+        #expect(rects.map(\.height) == [side, side, side])
+        #expect(rects[0].width == side)
+        #expect(rects[1].width == 22)
+        #expect(rects[2].width == ceil(25 * side / 18))
+        #expect(rects[1].minX == rects[0].maxX + StatusItemRenderer.combinedIconSpacing)
+    }
+
     @Test func combinedItemFallsBackToTheJoleneSymbol() {
         let image = StatusItemRenderer.image(for: CombinedArtwork(icons: [], total: nil), appearance: NSAppearance(named: .aqua)!)
         #expect(image.isTemplate)

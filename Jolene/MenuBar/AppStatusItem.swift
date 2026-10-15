@@ -7,7 +7,7 @@ import AppKit
 /// in the section a menu bar manager such as Ice or Bartender shows or hides.
 final class AppStatusItem: NSObject, NSMenuDelegate {
     let bundleID: String
-    var onShowSettings: ((String?) -> Void)?
+    var onShowSettings: ((SidebarItem?) -> Void)?
 
     private let statusItem: NSStatusItem
     private var app: MonitoredApp
@@ -48,6 +48,13 @@ final class AppStatusItem: NSObject, NSMenuDelegate {
             statusItem.isVisible = shown
         }
         if shown { render() }
+    }
+
+    /// Hides the item where it stands, for while the single combined item is in use.
+    func hide() {
+        if statusItem.isVisible {
+            statusItem.isVisible = false
+        }
     }
 
     func remove() {
@@ -105,6 +112,9 @@ final class AppStatusItem: NSObject, NSMenuDelegate {
 
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
+        // The click tracks the menu until it closes. Clearing it here as well as in menuDidClose
+        // means a menu that never opened can't take over the next left click.
+        statusItem.menu = nil
     }
 
     private var statusLine: String {
@@ -133,7 +143,7 @@ final class AppStatusItem: NSObject, NSMenuDelegate {
     }
 
     @objc private func showAppSettings() {
-        onShowSettings?(bundleID)
+        onShowSettings?(.app(bundleID))
     }
 
     @objc private func showSettings() {

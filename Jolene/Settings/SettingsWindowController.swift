@@ -11,10 +11,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         self.model = model
     }
 
-    /// Shows the window, on the given app's page if there is one.
-    func show(selecting bundleID: String?) {
-        if let bundleID {
-            model.router.selection = .app(bundleID)
+    /// Shows the window on the given page, or wherever it was left.
+    func show(page: SidebarItem? = nil) {
+        if let page {
+            model.router.selection = page
         }
         let window = window ?? makeWindow()
         self.window = window

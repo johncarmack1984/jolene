@@ -4,7 +4,7 @@ import AppKit
 /// listing every watched app. It also stands in while no apps are set up, so settings stay
 /// one click away.
 final class CombinedStatusItem: NSObject, NSMenuDelegate {
-    var onShowSettings: ((String?) -> Void)?
+    var onShowSettings: ((SidebarItem?) -> Void)?
 
     private let statusItem: NSStatusItem
     private var apps: [MonitoredApp] = []
@@ -15,6 +15,7 @@ final class CombinedStatusItem: NSObject, NSMenuDelegate {
     private struct RenderKey: Equatable {
         var artwork: CombinedArtwork
         var appearance: NSAppearance.Name
+        var description: String
     }
 
     override init() {
@@ -37,8 +38,14 @@ final class CombinedStatusItem: NSObject, NSMenuDelegate {
         render()
     }
 
-    func remove() {
-        NSStatusBar.system.removeStatusItem(statusItem)
+    /// Hidden in place while each app has its own item, so it keeps its position too.
+    var isShown: Bool {
+        get { statusItem.isVisible }
+        set {
+            if statusItem.isVisible != newValue {
+                statusItem.isVisible = newValue
+            }
+        }
     }
 
     private var badgedApps: [MonitoredApp] {
@@ -52,13 +59,15 @@ final class CombinedStatusItem: NSObject, NSMenuDelegate {
             icons: badged.map { StatusItemArtwork(app: $0, badge: nil).icon },
             total: Badge.total(of: badged.compactMap { snapshot.badges[$0.bundleID] })
         )
-        let key = RenderKey(artwork: artwork, appearance: button.effectiveAppearance.name)
-        guard key != renderedKey else { return }
-        renderedKey = key
-        button.image = StatusItemRenderer.image(for: artwork, appearance: button.effectiveAppearance)
         let description = badged.isEmpty
             ? "Jolene, nothing new"
             : "Jolene, " + badged.map { "\($0.name) \(snapshot.badges[$0.bundleID]?.spokenDescription ?? "")" }.joined(separator: ", ")
+        // The description is part of the key: the icons and total can stay the same while the
+        // counts behind them change.
+        let key = RenderKey(artwork: artwork, appearance: button.effectiveAppearance.name, description: description)
+        guard key != renderedKey else { return }
+        renderedKey = key
+        button.image = StatusItemRenderer.image(for: artwork, appearance: button.effectiveAppearance)
         button.setAccessibilityLabel(description)
         button.toolTip = description
     }
@@ -72,7 +81,7 @@ final class CombinedStatusItem: NSObject, NSMenuDelegate {
             let empty = NSMenuItem(title: "No apps yet", action: nil, keyEquivalent: "")
             empty.isEnabled = false
             menu.addItem(empty)
-            menu.addItem(item("Add Apps…", #selector(showSettings)))
+            menu.addItem(item("Add Apps…", #selector(addApps)))
         } else {
             for app in apps {
                 menu.addItem(appItem(for: app))
@@ -85,6 +94,7 @@ final class CombinedStatusItem: NSObject, NSMenuDelegate {
 
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
+        statusItem.menu = nil
     }
 
     private func appItem(for app: MonitoredApp) -> NSMenuItem {
@@ -129,5 +139,9 @@ final class CombinedStatusItem: NSObject, NSMenuDelegate {
 
     @objc private func showSettings() {
         onShowSettings?(nil)
+    }
+
+    @objc private func addApps() {
+        onShowSettings?(.addApps)
     }
 }

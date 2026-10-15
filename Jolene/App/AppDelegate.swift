@@ -27,13 +27,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settingsWindow = SettingsWindowController(model: model)
         self.model = model
         self.settingsWindow = settingsWindow
-        menuBar = MenuBarController(model: model) { [weak settingsWindow] bundleID in
-            settingsWindow?.show(selecting: bundleID)
-        }
+        // Read the badges first, so items that show only while their app is open don't flash.
         model.start()
+        menuBar = MenuBarController(model: model) { [weak settingsWindow] page in
+            settingsWindow?.show(page: page)
+        }
 
         if model.preferences.apps.isEmpty {
-            settingsWindow.show(selecting: nil)
+            settingsWindow.show()
         }
         #if DEBUG
         showSettingsIfAsked()
@@ -46,35 +47,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// goes on to the Add Apps page.
     private func showSettingsIfAsked() {
         guard let page = UserDefaults.standard.string(forKey: "JoleneShowSettings") else { return }
-        settingsWindow?.show(selecting: page == "general" ? nil : page)
+        settingsWindow?.show(page: page == "general" ? .general : .app(page))
         if UserDefaults.standard.bool(forKey: "JoleneAddApps") {
-            model?.router.addApps()
+            settingsWindow?.show(page: .addApps)
         }
     }
     #endif
 
     /// Opening Jolene again, from Finder, Spotlight or the Dock, brings up settings.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        settingsWindow?.show(selecting: nil)
+        settingsWindow?.show()
         return false
     }
 
     @objc func showSettings(_ sender: Any?) {
-        settingsWindow?.show(selecting: nil)
+        settingsWindow?.show()
     }
 
     /// Two copies of Jolene, say an installed one and a development build, would show every
-    /// badge twice. If another copy is already running, open its settings instead and quit.
+    /// badge twice. The copy that started later opens the other's settings and quits.
     private func handedOverToRunningCopy() -> Bool {
+        let current = NSRunningApplication.current
         guard let bundleID = Bundle.main.bundleIdentifier,
-              let other = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
-                .first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier && !$0.isTerminated }),
-              let url = other.bundleURL
+              let earlier = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first(where: { other in
+                  other.processIdentifier != current.processIdentifier && !other.isTerminated
+                      && Self.startedFirst(other.launchDate, other.processIdentifier, before: current.launchDate, current.processIdentifier)
+              }),
+              let url = earlier.bundleURL
         else { return false }
         NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { _, _ in
             DispatchQueue.main.async { NSApp.terminate(nil) }
         }
         return true
+    }
+
+    /// Which of two copies keeps running: the one launched first, or with the lower process id
+    /// when the launch times match or aren't known. Copies starting together, as two login items
+    /// would, still agree on exactly one.
+    nonisolated static func startedFirst(_ launch: Date?, _ pid: pid_t, before otherLaunch: Date?, _ otherPID: pid_t) -> Bool {
+        if let launch, let otherLaunch, launch != otherLaunch {
+            return launch < otherLaunch
+        }
+        return pid < otherPID
     }
 
     private static var isRunningTests: Bool {

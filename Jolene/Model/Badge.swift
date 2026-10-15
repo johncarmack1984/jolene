@@ -23,32 +23,34 @@ nonisolated struct Badge: Hashable, Sendable {
         label = trimmed
         if trimmed.allSatisfy(Self.dotCharacters.contains) {
             kind = .dot
-        } else if let number = Self.integer(from: trimmed) {
+        } else if let number = Self.integer(from: Substring(trimmed)) {
             kind = .count(number)
         } else {
             kind = .text
         }
     }
 
-    /// The number this badge stands for, when it has one. "99+" counts as 99.
+    /// The number this badge stands for, when it has one. "99+" counts as 99; text such as
+    /// "New" or a timer's "24:59" doesn't count at all.
     var count: Int? {
         switch kind {
         case .count(let number): number
         case .dot: nil
-        case .text: Self.leadingInteger(in: label)
+        case .text: label.hasSuffix("+") ? Self.integer(from: label.dropLast()) : nil
         }
     }
 
-    /// The text to draw inside a badge. A dot has none, and long labels are shortened.
+    /// The text to draw inside a badge. A dot has none; long counts are abbreviated rather
+    /// than cut, so 1,204,567 reads "1M+", and other long labels are shortened.
     var displayText: String {
-        switch kind {
-        case .dot:
-            ""
-        case .count, .text:
-            label.count > Self.maxDisplayLength
-                ? String(label.prefix(Self.maxDisplayLength - 1)) + "…"
-                : label
-        }
+        if case .dot = kind { return "" }
+        guard label.count > Self.maxDisplayLength else { return label }
+        if let count { return Self.abbreviated(count) }
+        return String(label.prefix(Self.maxDisplayLength - 1)) + "…"
+    }
+
+    static func abbreviated(_ count: Int) -> String {
+        count >= 1_000_000 ? "\(count / 1_000_000)M+" : "\(count / 1_000)k+"
     }
 
     /// How the badge reads aloud and in tooltips: "3 new", "something new", "New".
@@ -65,32 +67,31 @@ nonisolated struct Badge: Hashable, Sendable {
     private static let dotCharacters: Set<Character> = ["•", "●", "·", "∙", "⋅", "◦", "⦁", "⚫", "⚬", "○", "◉"]
     private static let groupingSeparators: Set<Character> = [",", ".", " ", "\u{00A0}", "\u{202F}", "'", "’", "_"]
 
-    /// Reads labels made only of digits and grouping separators, such as "1,204" or "1 204",
-    /// in any script's decimal digits.
-    private static func integer(from text: String) -> Int? {
+    /// Reads whole numbers in any script's digits, optionally grouped in threes: "1,204",
+    /// "1 204" and "1.204" are counts, while "1.5" and "12,34" aren't.
+    private static func integer(from text: Substring) -> Int? {
         var value = 0
         var digits = 0
+        var digitsInGroup = 0
+        var separators = 0
         for character in text {
             if let digit = decimalDigit(character) {
-                guard digits < 12 else { return nil }
-                value = value * 10 + digit
                 digits += 1
-            } else if !(digits > 0 && groupingSeparators.contains(character)) {
+                guard digits <= 15 else { return nil }
+                value = value * 10 + digit
+                digitsInGroup += 1
+            } else if groupingSeparators.contains(character) {
+                // The first group has one to three digits, every later group exactly three.
+                let validGroup = separators == 0 ? (1...3).contains(digitsInGroup) : digitsInGroup == 3
+                guard validGroup else { return nil }
+                separators += 1
+                digitsInGroup = 0
+            } else {
                 return nil
             }
         }
-        return digits > 0 ? value : nil
-    }
-
-    private static func leadingInteger(in text: String) -> Int? {
-        var value = 0
-        var digits = 0
-        for character in text {
-            guard let digit = decimalDigit(character), digits < 12 else { break }
-            value = value * 10 + digit
-            digits += 1
-        }
-        return digits > 0 ? value : nil
+        guard digits > 0, separators == 0 || digitsInGroup == 3 else { return nil }
+        return value
     }
 
     private static func decimalDigit(_ character: Character) -> Int? {
