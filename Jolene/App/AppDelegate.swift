@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var model: AppModel?
     private var menuBar: MenuBarController?
     private var settingsWindow: SettingsWindowController?
+    private let updates = UpdateController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Unit tests run inside the app. Leave the menu bar and settings alone for them.
@@ -24,14 +25,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         NSApp.mainMenu = MainMenu.make()
         let model = AppModel(store: PreferencesStore(defaults: .standard), monitor: BadgeMonitor())
-        let settingsWindow = SettingsWindowController(model: model)
+        let settingsWindow = SettingsWindowController(model: model, updates: updates)
         self.model = model
         self.settingsWindow = settingsWindow
         // Read the badges first, so items that show only while their app is open don't flash.
         model.start()
-        menuBar = MenuBarController(model: model) { [weak settingsWindow] page in
+        menuBar = MenuBarController(model: model, updates: updates) { [weak settingsWindow] page in
             settingsWindow?.show(page: page)
         }
+
+        // An update installs by relaunching Jolene, so it waits while settings are open.
+        updates.shouldDeferInstall = { [weak settingsWindow] in settingsWindow?.isOpen ?? false }
+        settingsWindow.onClose = { [weak updates] in updates?.installPendingUpdate() }
+        updates.start()
 
         if model.preferences.apps.isEmpty {
             settingsWindow.show()
@@ -62,6 +68,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showSettings(_ sender: Any?) {
         settingsWindow?.show()
+    }
+
+    @objc func checkForUpdates(_ sender: Any?) {
+        updates.checkForUpdates(sender)
     }
 
     /// Two copies of Jolene, say an installed one and a development build, would show every

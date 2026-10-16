@@ -5,6 +5,8 @@ import AppKit
 /// one click away.
 final class CombinedStatusItem: NSObject, NSMenuDelegate {
     var onShowSettings: ((SidebarItem?) -> Void)?
+    /// An "Update Jolene" item, when an update is waiting on the person.
+    var updateMenuItem: (() -> NSMenuItem?)?
 
     private let statusItem: NSStatusItem
     private var apps: [MonitoredApp] = []
@@ -77,6 +79,10 @@ final class CombinedStatusItem: NSObject, NSMenuDelegate {
         menu.delegate = self
         menu.autoenablesItems = false
 
+        if let update = updateMenuItem?() {
+            menu.addItem(update)
+            menu.addItem(.separator())
+        }
         if apps.isEmpty {
             let empty = NSMenuItem(title: "No apps yet", action: nil, keyEquivalent: "")
             empty.isEnabled = false

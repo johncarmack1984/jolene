@@ -1,0 +1,4 @@
+// The app's version, bumped by release-please when a release is cut. The build number follows
+// it, so Sparkle can tell which release is newer.
+MARKETING_VERSION = 0.1.0 // x-release-please-version
+CURRENT_PROJECT_VERSION = $(MARKETING_VERSION)

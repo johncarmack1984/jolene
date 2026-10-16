@@ -8,12 +8,14 @@ import Observation
 /// across switches between the two layouts.
 final class MenuBarController {
     private let model: AppModel
+    private let updates: UpdateController
     private let showSettings: (SidebarItem?) -> Void
     private var appItems: [String: AppStatusItem] = [:]
     private var combinedItem: CombinedStatusItem?
 
-    init(model: AppModel, showSettings: @escaping (SidebarItem?) -> Void) {
+    init(model: AppModel, updates: UpdateController, showSettings: @escaping (SidebarItem?) -> Void) {
         self.model = model
+        self.updates = updates
         self.showSettings = showSettings
         observe()
     }
@@ -71,6 +73,7 @@ final class MenuBarController {
     private func makeAppItem(for app: MonitoredApp) -> AppStatusItem {
         let item = AppStatusItem(app: app)
         item.onShowSettings = showSettings
+        item.updateMenuItem = { [weak updates] in updates?.availableUpdateMenuItem() }
         appItems[app.bundleID] = item
         return item
     }
@@ -78,6 +81,7 @@ final class MenuBarController {
     private func makeCombinedItem() -> CombinedStatusItem {
         let item = CombinedStatusItem()
         item.onShowSettings = showSettings
+        item.updateMenuItem = { [weak updates] in updates?.availableUpdateMenuItem() }
         combinedItem = item
         return item
     }
