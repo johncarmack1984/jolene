@@ -4,6 +4,7 @@ import SwiftUI
 
 struct GeneralSettingsView: View {
     let model: AppModel
+    let updates: UpdateController
 
     var body: some View {
         Form {
@@ -36,6 +37,10 @@ struct GeneralSettingsView: View {
 
             Section("Startup") {
                 LoginItemToggle()
+            }
+
+            Section("Updates") {
+                UpdatesSection(updates: updates)
             }
 
             Section("About") {
@@ -175,6 +180,49 @@ private struct DollStillOpenSection: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+private struct UpdatesSection: View {
+    let updates: UpdateController
+    @State private var checksAutomatically = true
+    @State private var installsAutomatically = true
+    @State private var lastCheck: Date?
+
+    var body: some View {
+        Toggle("Check for updates automatically", isOn: $checksAutomatically)
+            .onChange(of: checksAutomatically) { _, on in
+                updates.updater?.automaticallyChecksForUpdates = on
+            }
+        Toggle("Download and install updates automatically", isOn: $installsAutomatically)
+            .onChange(of: installsAutomatically) { _, on in
+                updates.updater?.automaticallyDownloadsUpdates = on
+            }
+            .disabled(!checksAutomatically)
+        if let version = updates.availableVersion {
+            LabeledContent {
+                Button("Install…") { updates.checkForUpdates(nil) }
+            } label: {
+                Text("Jolene \(version) is ready to install.")
+            }
+        }
+        LabeledContent {
+            Button("Check Now") { updates.checkForUpdates(nil) }
+        } label: {
+            Text(lastCheckDescription)
+                .foregroundStyle(.secondary)
+        }
+        .onAppear {
+            guard let updater = updates.updater else { return }
+            checksAutomatically = updater.automaticallyChecksForUpdates
+            installsAutomatically = updater.automaticallyDownloadsUpdates
+            lastCheck = updater.lastUpdateCheckDate
+        }
+    }
+
+    private var lastCheckDescription: String {
+        guard let lastCheck else { return "Not checked yet" }
+        return "Last checked \(lastCheck.formatted(.relative(presentation: .named)))"
     }
 }
 

@@ -5,10 +5,18 @@ import SwiftUI
 /// While it's open, Jolene appears in the Dock and the app switcher like any other app.
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let model: AppModel
+    private let updates: UpdateController
     private var window: NSWindow?
+    /// Called when the window closes.
+    var onClose: (() -> Void)?
 
-    init(model: AppModel) {
+    init(model: AppModel, updates: UpdateController) {
         self.model = model
+        self.updates = updates
+    }
+
+    var isOpen: Bool {
+        window?.isVisible == true
     }
 
     /// Shows the window on the given page, or wherever it was left.
@@ -27,7 +35,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     private func makeWindow() -> NSWindow {
-        let hosting = NSHostingController(rootView: SettingsView(model: model))
+        let hosting = NSHostingController(rootView: SettingsView(model: model, updates: updates))
         // The window, not the content, decides the size, so it can be resized freely.
         hosting.sizingOptions = []
         hosting.sceneBridgingOptions = [.toolbars, .title]
@@ -48,5 +56,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        onClose?()
     }
 }

@@ -8,6 +8,8 @@ import AppKit
 final class AppStatusItem: NSObject, NSMenuDelegate {
     let bundleID: String
     var onShowSettings: ((SidebarItem?) -> Void)?
+    /// An "Update Jolene" item, when an update is waiting on the person.
+    var updateMenuItem: (() -> NSMenuItem?)?
 
     private let statusItem: NSStatusItem
     private var app: MonitoredApp
@@ -95,6 +97,10 @@ final class AppStatusItem: NSObject, NSMenuDelegate {
         menu.delegate = self
         menu.autoenablesItems = false
 
+        if let update = updateMenuItem?() {
+            menu.addItem(update)
+            menu.addItem(.separator())
+        }
         let status = NSMenuItem(title: statusLine, action: nil, keyEquivalent: "")
         status.isEnabled = false
         menu.addItem(status)

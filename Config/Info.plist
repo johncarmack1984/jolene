@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>SUFeedURL</key>
+	<string>https://github.com/johncarmack1984/jolene/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>i7j8krVbdQCUqS2Ywc+yO7FTsibapXWOCvkttMKbDxA=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<true/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
+</dict>
+</plist>

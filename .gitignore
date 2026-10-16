@@ -2,6 +2,12 @@
 /build/
 DerivedData/
 
+# Terraform working files; the lock file is tracked
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
+
 # Xcode user state
 xcuserdata/
 *.xcuserstate

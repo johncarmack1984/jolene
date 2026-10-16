@@ -27,9 +27,15 @@ macOS doesn't tell other apps when a badge changes, so Jolene checks: once a sec
 - `StatusLabel` and the function that reads it are private API, which also rules out the Mac App Store. If a macOS release drops them, Jolene falls back to the slower `lsappinfo` tool, and CI should catch it first: the tests set a badge and read it back on the newest macOS every week.
 - If an app's badges are off in Notifications settings, the Dock shows nothing and neither does Jolene. Each app's page in Jolene has a button that opens Notifications settings.
 
+## Installing
+
+Download the disk image from the [latest release](https://github.com/johncarmack1984/jolene/releases/latest), open it, and drag Jolene into Applications. It runs on macOS 14 or later, and it's signed and notarized by Apple.
+
+From then on, Jolene updates itself. Once a day it checks for a new version, installs it in the background and relaunches, with your items back where they were. If you'd rather be asked first, or check by hand, there's a switch for each under Updates in its settings.
+
 ## Building
 
-Jolene runs on macOS 14 or later and builds with Xcode 26 or later. There are no dependencies.
+Jolene builds with Xcode 26 or later. Its one dependency is Sparkle, which handles updates, and Xcode fetches it on the first build.
 
 ```sh
 just run      # build and open Jolene
@@ -40,6 +46,8 @@ just release  # Developer ID build; set NOTARY_PROFILE to notarize it
 `just badge 12` opens BadgeProbe, a small app that shows whatever Dock badge you give it, so you can try Jolene without waiting for email. `just badge` clears it.
 
 CI runs the tests on macOS 26 and macOS 27 for every push and every Monday.
+
+Releases come from release-please. Commit messages on main follow Conventional Commits (`feat:`, `fix:`), and release-please keeps a pull request open with the next version and its changelog. Merging it tags the release, and a workflow builds Jolene, has Apple notarize it, and attaches it to the release along with the feed installed copies check for updates.
 
 ## License
 

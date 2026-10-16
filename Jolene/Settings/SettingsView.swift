@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     let model: AppModel
+    let updates: UpdateController
 
     var body: some View {
         @Bindable var router = model.router
@@ -23,7 +24,7 @@ struct SettingsView: View {
             // A page rather than a sheet: a sheet would stop Jolene from quitting while it's open.
             AppPickerView(model: model)
         } else {
-            GeneralSettingsView(model: model)
+            GeneralSettingsView(model: model, updates: updates)
         }
     }
 }

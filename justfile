@@ -31,7 +31,7 @@ release:
     #!/usr/bin/env bash
     set -euo pipefail
     rm -rf build/release
-    xcodebuild -project {{project}} -scheme {{scheme}} -configuration Release -archivePath build/release/Jolene.xcarchive -quiet archive
+    xcodebuild -project {{project}} -scheme {{scheme}} -configuration Release -destination 'generic/platform=macOS' -archivePath build/release/Jolene.xcarchive -quiet archive
     xcodebuild -exportArchive -archivePath build/release/Jolene.xcarchive -exportPath build/release -exportOptionsPlist Tools/ExportOptions.plist -quiet
     if [ -n "${NOTARY_PROFILE:-}" ]; then
         ditto -c -k --keepParent build/release/Jolene.app build/release/notarize.zip
@@ -42,7 +42,7 @@ release:
         echo "Signed, not notarized. Set NOTARY_PROFILE to a notarytool keychain profile to notarize."
     fi
     version=$(plutil -extract CFBundleShortVersionString raw build/release/Jolene.app/Contents/Info.plist)
-    ditto -c -k --keepParent build/release/Jolene.app "build/release/Jolene-$version.zip"
+    ditto -c -k --sequesterRsrc --keepParent build/release/Jolene.app "build/release/Jolene-$version.zip"
     echo "build/release/Jolene-$version.zip"
 
 # Build, quit the running Jolene, and open the new build

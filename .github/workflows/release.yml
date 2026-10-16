@@ -1,0 +1,285 @@
+name: Release
+
+# release-please keeps a release PR open that bumps the version in Config/Version.xcconfig and
+# version.txt and adds to CHANGELOG.md. Merging it tags main and creates the GitHub release.
+# The publish job then builds Jolene, has Apple notarize it, and attaches it to the release
+# along with appcast.xml, the feed every installed copy checks once a day.
+#
+# No signing keys live in GitHub. The publish job assumes an AWS role through GitHub's OIDC
+# token (see infra/) and reads the Developer ID certificate, the notary key and the update
+# signing key from Secrets Manager. It stays off until the AWS_RELEASE_ROLE_ARN variable is set.
+#
+# Both jobs share one workflow because a release created with the default GITHUB_TOKEN can't
+# start another workflow.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish, such as v1.2.3, when its publish job didn't finish"
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Release PR and tag
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    name: Build, notarize and publish
+    needs: [release-please]
+    if: >-
+      always() &&
+      vars.AWS_RELEASE_ROLE_ARN != '' &&
+      (
+        (github.event_name == 'push' && needs.release-please.outputs.release_created == 'true') ||
+        github.event_name == 'workflow_dispatch'
+      )
+    # The newest Xcode, so code for the newest macOS is compiled in.
+    runs-on: xcode-27
+    timeout-minutes: 60
+    permissions:
+      contents: write # attach the release assets
+      deployments: write # record the release in the Deployments view
+      id-token: write # assume the AWS role that reads the signing secrets
+    env:
+      TAG: ${{ inputs.tag || needs.release-please.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+
+      # A rebuild signs a new archive, and copies that already read the feed would reject it.
+      # To finish a release whose publish failed partway, rerun the failed job instead, or
+      # delete the release's assets first to rebuild on purpose.
+      - name: Refuse to rebuild a published release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          assets=$(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          if [ -n "$assets" ]; then
+            echo "::error::$TAG already has assets: $assets. Delete them first to rebuild it."
+            exit 1
+          fi
+
+      - name: Show the toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_RELEASE_ROLE_ARN }}
+          aws-region: us-west-1
+
+      # lux/apple-signing is shared by every app signed with the team's Developer ID. It holds
+      # the certificate (a base64 .p12 and its password), the identity's name and the App Store
+      # Connect key that notarizes. The certificate goes into a keychain of its own, which
+      # codesign can use without a prompt no runner could answer.
+      - name: Load the Developer ID certificate and notary key
+        run: |
+          set -euo pipefail
+          secret=$(aws secretsmanager get-secret-value --secret-id lux/apple-signing --query SecretString --output text)
+          for key in certificate_password api_key_id api_issuer_id; do
+            echo "::add-mask::$(jq -r ".$key" <<<"$secret")"
+          done
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(openssl rand -base64 24)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          jq -r .certificate <<<"$secret" | base64 -d > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$(jq -r .certificate_password <<<"$secret")" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" login.keychain-db
+          (umask 077 && jq -r .api_key <<<"$secret" > "$RUNNER_TEMP/notary.p8")
+          {
+            echo "KEYCHAIN=$keychain"
+            echo "SIGNING_IDENTITY=$(jq -r .signing_identity <<<"$secret")"
+            echo "TEAM_ID=$(jq -r .team_id <<<"$secret")"
+            echo "NOTARY_KEY=$RUNNER_TEMP/notary.p8"
+            echo "NOTARY_KEY_ID=$(jq -r .api_key_id <<<"$secret")"
+            echo "NOTARY_ISSUER=$(jq -r .api_issuer_id <<<"$secret")"
+          } >> "$GITHUB_ENV"
+
+      # Exporting re-signs everything inside the app with the Developer ID, Sparkle's helper
+      # tools included, which notarization requires.
+      - name: Build
+        run: |
+          set -euo pipefail
+          xcodebuild archive \
+            -project Jolene.xcodeproj \
+            -scheme Jolene \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -archivePath build/Jolene.xcarchive \
+            -derivedDataPath build/DerivedData \
+            -disableAutomaticPackageResolution \
+            -quiet \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" \
+            DEVELOPMENT_TEAM="$TEAM_ID"
+          xcodebuild -exportArchive \
+            -archivePath build/Jolene.xcarchive \
+            -exportOptionsPlist Tools/ExportOptions.plist \
+            -exportPath build/export \
+            -quiet
+
+      # The tag and the app's version come from opposite ends of the pipeline, so a mismatch
+      # means one drifted, and the feed would offer a version nobody can download.
+      - name: Check the version and signatures
+        run: |
+          set -euo pipefail
+          app=build/export/Jolene.app
+          version=$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")
+          test "v$version" = "$TAG" || { echo "::error::The app is version $version, but the release is $TAG."; exit 1; }
+          test "$(plutil -extract CFBundleVersion raw "$app/Contents/Info.plist")" = "$version"
+          for arch in arm64 x86_64; do lipo "$app/Contents/MacOS/Jolene" -verify_arch "$arch"; done
+          codesign --verify --deep --strict --verbose=2 "$app"
+          sparkle="$app/Contents/Frameworks/Sparkle.framework/Versions/B"
+          for code in "$app" "$sparkle/Autoupdate" "$sparkle/Updater.app" "$sparkle/XPCServices/Installer.xpc" "$sparkle/XPCServices/Downloader.xpc"; do
+            signature=$(codesign -dv --verbose=2 "$code" 2>&1)
+            grep -q "^Authority=Developer ID Application: .*($TEAM_ID)$" <<<"$signature" \
+              || { echo "::error::$code isn't signed with the Developer ID."; exit 1; }
+          done
+          {
+            echo "VERSION=$version"
+            echo "MINIMUM_MACOS=$(plutil -extract LSMinimumSystemVersion raw "$app/Contents/Info.plist")"
+          } >> "$GITHUB_ENV"
+
+      # The app is notarized and stapled first, so the zip and the disk image both carry a
+      # stapled copy that Gatekeeper accepts offline.
+      - name: Notarize the app and the disk image
+        run: |
+          set -euo pipefail
+          notarize() {
+            result=$(xcrun notarytool submit "$1" --key "$NOTARY_KEY" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER" --wait --timeout 30m --output-format json) || true
+            echo "$result"
+            if [ "$(jq -r .status <<<"$result" 2>/dev/null)" != "Accepted" ]; then
+              id=$(jq -r .id <<<"$result" 2>/dev/null) && xcrun notarytool log "$id" --key "$NOTARY_KEY" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER" || true
+              echo "::error::Apple didn't notarize $1."
+              exit 1
+            fi
+          }
+          app=build/export/Jolene.app
+          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/notarize.zip"
+          notarize "$RUNNER_TEMP/notarize.zip"
+          xcrun stapler staple "$app"
+          spctl --assess --type execute --verbose=4 "$app"
+
+          mkdir -p dist
+          # The archive Sparkle installs updates from.
+          ditto -c -k --sequesterRsrc --keepParent "$app" "dist/Jolene-$VERSION.zip"
+
+          dmg="dist/Jolene-$VERSION.dmg"
+          stage="$RUNNER_TEMP/dmg"
+          mkdir -p "$stage"
+          ditto "$app" "$stage/Jolene.app"
+          ln -s /Applications "$stage/Applications"
+          # hdiutil sometimes finds the image busy on hosted runners, so give it three tries.
+          for attempt in 1 2 3; do
+            hdiutil create -volname Jolene -srcfolder "$stage" -fs HFS+ -format UDZO -ov "$dmg" && break
+            [ "$attempt" = 3 ] && exit 1
+            sleep 10
+          done
+          codesign --sign "$SIGNING_IDENTITY" --timestamp "$dmg"
+          notarize "$dmg"
+          xcrun stapler staple "$dmg"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg"
+
+      # Signs the zip with the update key and checks the signature against the key in this
+      # build's Info.plist, the same check every installed copy makes before installing.
+      - name: Sign the update and write the appcast
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          zip="dist/Jolene-$VERSION.zip"
+          signature=$(aws secretsmanager get-secret-value --secret-id jolene/updater-signing-key --query SecretString --output text \
+            | tr -d '\n' | build/DerivedData/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update --ed-key-file - -p "$zip")
+          swift Tools/verify-update-signature.swift build/export/Jolene.app "$signature" "$zip"
+          notes=$(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json body --jq .body | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
+          cat > dist/appcast.xml <<EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>Jolene</title>
+              <link>https://github.com/$GITHUB_REPOSITORY</link>
+              <item>
+                <title>Jolene $VERSION</title>
+                <pubDate>$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')</pubDate>
+                <sparkle:version>$VERSION</sparkle:version>
+                <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>$MINIMUM_MACOS</sparkle:minimumSystemVersion>
+                <sparkle:fullReleaseNotesLink>https://github.com/$GITHUB_REPOSITORY/releases</sparkle:fullReleaseNotesLink>
+                <description sparkle:format="markdown">$notes</description>
+                <enclosure url="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/Jolene-$VERSION.zip" length="$(stat -f %z "$zip")" type="application/octet-stream" sparkle:edSignature="$signature"/>
+              </item>
+            </channel>
+          </rss>
+          EOF
+          xmllint --noout dist/appcast.xml
+          cat dist/appcast.xml
+
+      # appcast.xml goes up last, because the feed pointing at this release is what makes it
+      # live. Before that, the zip is fetched back through the release to check it arrived
+      # whole.
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          zip="Jolene-$VERSION.zip"
+          gh release upload "$TAG" "dist/$zip" "dist/Jolene-$VERSION.dmg" --clobber -R "$GITHUB_REPOSITORY"
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq ".assets[] | select(.name == \"$zip\") | .id")
+          [ -n "$id" ] || { echo "::error::$zip isn't attached to $TAG."; exit 1; }
+          curl -fsSL -H 'Accept: application/octet-stream' -H "Authorization: Bearer $GH_TOKEN" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/assets/$id" -o "$RUNNER_TEMP/$zip"
+          cmp "dist/$zip" "$RUNNER_TEMP/$zip"
+          gh release upload "$TAG" dist/appcast.xml --clobber -R "$GITHUB_REPOSITORY"
+          echo "Published $TAG"
+
+      # Through the API rather than a job-level environment key, which would change the OIDC
+      # subject to one the AWS role doesn't trust.
+      - name: Record the deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          body=$(jq -nc --arg ref "$TAG" '{ref: $ref, environment: "updates", production_environment: true, auto_merge: false, required_contexts: []}')
+          id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/deployments" --input - <<<"$body" --jq .id)
+          gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" \
+            -f state=success -f environment=updates \
+            -f environment_url="https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG" \
+            -f description="$TAG is in the update feed" > /dev/null
+
+      - name: Remove the signing keychain
+        if: always()
+        run: |
+          [ -z "${KEYCHAIN:-}" ] || security delete-keychain "$KEYCHAIN" || true
+          rm -f "$RUNNER_TEMP/notary.p8"
