@@ -25,6 +25,8 @@ final class CombinedStatusItem: NSObject, NSMenuDelegate {
         statusItem.autosaveName = "jolene.combined"
         super.init()
         if let button = statusItem.button {
+            // Like each app's item, so Bartender can tell this one apart from them.
+            button.setAccessibilityIdentifier(statusItem.autosaveName)
             button.target = self
             button.action = #selector(buttonClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])

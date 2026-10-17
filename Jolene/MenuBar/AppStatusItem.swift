@@ -3,8 +3,10 @@ import AppKit
 /// One app's menu bar item.
 ///
 /// The item is created once and then shown or hidden with `isVisible`, never removed and added
-/// back, and it keeps a stable autosave name. That keeps it where the person put it, including
-/// in the section a menu bar manager such as Ice or Bartender shows or hides.
+/// back, and it keeps a stable autosave name. That keeps it where the person put it. Its button
+/// carries the autosave name as its accessibility identifier too, which is how Bartender tells
+/// an app's items apart. Without one, Bartender keys them by position, the keys shift whenever
+/// an item hides, and a returning item could land in Bartender's hidden section as a new one.
 final class AppStatusItem: NSObject, NSMenuDelegate {
     let bundleID: String
     var onShowSettings: ((SidebarItem?) -> Void)?
@@ -32,6 +34,7 @@ final class AppStatusItem: NSObject, NSMenuDelegate {
         super.init()
 
         if let button = statusItem.button {
+            button.setAccessibilityIdentifier(statusItem.autosaveName)
             button.target = self
             button.action = #selector(buttonClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
