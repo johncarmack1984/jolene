@@ -29,7 +29,7 @@ macOS doesn't tell other apps when a badge changes, so Jolene checks: once a sec
 
 ## Installing
 
-Download the disk image from the [latest release](https://github.com/johncarmack1984/jolene/releases/latest), open it, and drag Jolene into Applications. It runs on macOS 14 or later, and it's signed and notarized by Apple.
+Download the disk image from the [latest release](https://github.com/johncarmack1984/jolene/releases/latest) and open Jolene from it. It offers to move itself into `~/Applications`, the Applications folder in your home folder. Installing there needs no administrator password, and neither do updates, so it works on a work Mac where you aren't an admin. Dragging it onto the Applications shortcut in the disk image puts it in the main Applications folder instead, which does need one. It runs on macOS 14 or later, and it's signed and notarized by Apple.
 
 From then on, Jolene updates itself. Once a day it checks for a new version, installs it in the background and relaunches, with your items back where they were. If you'd rather be asked first, or check by hand, there's a switch for each under Updates in its settings.
 

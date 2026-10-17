@@ -39,7 +39,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindow.onClose = { [weak updates] in updates?.installPendingUpdate() }
         updates.start()
 
-        if model.preferences.apps.isEmpty {
+        // Settings opens by itself when there's nothing to watch yet, and while Jolene runs from
+        // somewhere it can't stay, since its first page offers to move it.
+        if model.preferences.apps.isEmpty || AppMover.isNeeded {
             settingsWindow.show()
         }
         #if DEBUG
