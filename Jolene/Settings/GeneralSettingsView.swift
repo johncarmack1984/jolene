@@ -8,6 +8,12 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         Form {
+            if AppMover.isNeeded {
+                Section {
+                    MoveToApplicationsSection()
+                }
+            }
+
             if model.preferences.apps.isEmpty {
                 Section {
                     WelcomeSection(model: model)
@@ -131,6 +137,41 @@ private struct WelcomeSection: View {
         .task {
             suggestions = model.badgedAppsNotWatched()
         }
+    }
+}
+
+private struct MoveToApplicationsSection: View {
+    @State private var errorText: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Move Jolene to Applications?")
+                .font(.headline)
+            Text(explanation)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Move to Applications") {
+                do {
+                    try AppMover.moveToApplications()
+                } catch {
+                    errorText = error.localizedDescription
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            if let errorText {
+                Text(errorText)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var explanation: String {
+        let situation = AppMover.diskImage == nil
+            ? "Jolene is running from where it was downloaded, so it can't update itself."
+            : "Jolene is running from its disk image, so it can't update itself, and it goes away when the image is ejected."
+        return situation + " It can move itself into the Applications folder in your home folder, which needs no administrator password."
     }
 }
 
