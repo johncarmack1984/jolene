@@ -30,15 +30,15 @@ resource "aws_iam_role" "release_signing" {
       Principal = { Federated = data.aws_iam_openid_connect_provider.github.arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
+        # The subject GitHub's tokens carry for this repo's main, matched whole (immutable ids:
+        # 20649979 is johncarmack1984, 1421220829 is jolene): this role reads the key that signs
+        # what installed copies install, so no branch or pull request run, and no other
+        # repository, may assume it. No wildcard, since IAM's `*` also matches `:`, `/` and `@`,
+        # and any repository can choose subject claims that carry these ids. A rename or transfer
+        # makes the role refuse until this line has the new prefix and is applied again.
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-        }
-        # This account's tokens name the repo by its immutable ids
-        # (repo:OWNER@ownerId/REPO@repoId:...), so match those: 20649979 is johncarmack1984,
-        # 1421220829 is jolene. Main only: this role reads the key that signs what installed
-        # copies install, so no branch or pull request run may assume it.
-        StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:*@20649979/*@1421220829:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub" = "repo:johncarmack1984@20649979/jolene@1421220829:ref:refs/heads/main"
         }
       }
     }]
